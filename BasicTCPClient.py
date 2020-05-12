@@ -11,7 +11,17 @@ from sys import exit
 def connectTCP(serverName, serverPort, clientPort):
     # create TCP client socket following IPv4 at clientPort
     clientSocket = socket(AF_INET, SOCK_STREAM)
-    clientSocket.bind(('', clientPort))
+    
+    # handle OSError: [Errno 98] Address already in use
+    while True:
+        try:
+            clientSocket.bind(('', clientPort))
+            break
+        except OSError:
+            clientPort += 10000
+            if(clientPort > 60000):
+                print('OSError: [Errno 98] Address already in use')
+                exit()
 
     # set connetion timeout 10 seconds
     clientSocket.settimeout(10)
@@ -58,7 +68,7 @@ def connectTCP(serverName, serverPort, clientPort):
 # try to connect to server by TCP
 serverPort = 21758
 clientPort = 31758
-clientSocket = connectTCP('nsl2.cau.ac.kr', serverPort, clientPort)
+clientSocket = connectTCP('localhost', serverPort, clientPort)
 
 # print the port number of the socket
 print("The client socket was created on port", clientSocket.getsockname()[1])
@@ -185,3 +195,4 @@ while True:
     print()
 
 clientSocket.close()
+print('Client socket closed')
