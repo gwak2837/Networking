@@ -7,9 +7,13 @@ from threading import Thread
 import json
 
 
+class ClientCounter:
+    def __init__(self, initial_value):
+        self.count = initial_value
+
 # If N client connects, there will be N client threads, N client sockets, along with 1 serer socket in the main thread
 # In this way, threading will automatically take care of multiple clients
-def connectionThread(connectionSocket):
+def connectionThread(connectionSocket, clientID, clientCounter):
     # send and receive data through the connection socket
     while True:
         # server will receive the command and reply with an appropriate response based on the command
@@ -57,8 +61,18 @@ def connectionThread(connectionSocket):
         else:
             print('Unknown Response, Command', command)
             continue
+    
+    # Whenever an existing client disconnects, print out the client number and the number of clients as below
+    print('Client', clientID, 'disconnected. Number of connected clients =', cc.count)
 
+    cc.count -= 1
     connectionSocket.close()
+
+# The server must print out the number of client every 1 minute by a thread
+def counterThread(clientCounter):
+    while True:
+        print('Number of connected clients =', cc.count)
+        sleep(60)
 
 
 # measure the server starting time
@@ -70,6 +84,12 @@ serverPort = 21758
 serverSocket.bind(('', serverPort))
 connectionSocket = None
 
+# Give each client a unique number when they connect
+clientID = 0
+cc = ClientCounter(0)
+t = Thread(target=counterThread, args=(cc,))
+t.start()
+
 # print the port number of the socket
 print("The server socket was created on port", serverSocket.getsockname()[1])
 
@@ -77,18 +97,29 @@ print("The server socket was created on port", serverSocket.getsockname()[1])
 try:
     # Server has a main thread with a server socket that is waiting for client connections
     while True:
+        
+
         # listen to port #10825
         serverSocket.listen(1)
         print("The server socket is listening to port", serverSocket.getsockname()[1])
 
         # When a client connects to the server and server 'accept()'s, server has a new socket for that client,
         (connectionSocket, clientAddress) = serverSocket.accept()
-        print('Connection requested from', clientAddress)
+        print('Connection requested from', clientAddress)        
+
+        # Client ID should not change even if a client disconnect. 
+        # Client ID increases by 1 every time connecting with a client
+        cc.count += 1
+        clientID += 1
+
+        # Whenever a new client connects, print out the client number and the number of clients as below
+        print('Client', clientID, 'connected. Number of connected clients =', cc.count)
 
         # and server creates a new thread for that connection. connection socket is given to the client thread
-        t = Thread(target=connectionThread, args=(connectionSocket,))
+        t2 = Thread(target=connectionThread, args=(connectionSocket, clientID, cc))
         # Then, this client thread in the server will use the client socket to communicate with the client
-        t.start()        
+        t2.start()
+     
 
 # when the user enters ‘Ctrl-C’, the program should not show any error messages
 except KeyboardInterrupt:

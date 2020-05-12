@@ -66,9 +66,10 @@ def connectTCP(serverName, serverPort, clientPort):
 
 
 # try to connect to server by TCP
+serverName = 'localhost'
 serverPort = 21758
-clientPort = 31758
-clientSocket = connectTCP('localhost', serverPort, clientPort)
+clientPort = 0
+clientSocket = connectTCP(serverName, serverPort, clientPort)
 
 # print the port number of the socket
 print("The client socket was created on port", clientSocket.getsockname()[1])
@@ -184,7 +185,7 @@ while True:
         print('ConnectionResetError: Connection is reset by remote host')
         # try to reconnect to server by TCP
         clientSocket.close()
-        clientSocket = connectTCP('nsl2.cau.ac.kr', 10825, 20825)
+        clientSocket = connectTCP(serverName, serverPort, clientPort)
     # when connection timed out
     except timeout:
         print('timeout: Connection timed out')
@@ -195,4 +196,3 @@ while True:
     print()
 
 clientSocket.close()
-print('Client socket closed')
