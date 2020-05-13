@@ -12,6 +12,7 @@ def connectTCP(serverName, serverPort, clientPort):
     # create TCP client socket following IPv4 at clientPort
     clientSocket = socket(AF_INET, SOCK_STREAM)
     
+    '''
     # handle OSError: [Errno 98] Address already in use
     while True:
         try:
@@ -22,6 +23,7 @@ def connectTCP(serverName, serverPort, clientPort):
             if(clientPort > 60000):
                 print('OSError: [Errno 98] Address already in use')
                 exit()
+    '''
 
     # set connetion timeout 10 seconds
     clientSocket.settimeout(10)
@@ -66,6 +68,7 @@ def connectTCP(serverName, serverPort, clientPort):
 
 
 # try to connect to server by TCP
+# for the client socket, you should use null(0) port number
 serverName = 'localhost'
 serverPort = 21758
 clientPort = 0

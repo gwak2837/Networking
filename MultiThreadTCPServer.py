@@ -7,15 +7,19 @@ from threading import Thread
 import json
 
 
-class ClientCounter:
-    def __init__(self, initial_value):
-        self.count = initial_value
+# manage a client connection socket on a list, and count the number of live client socket
+class ClinetSocketCounter:
+    def __init__(self):
+        self.clientSockets = []
+        self.liveClientSocketCount = 0
 
 # If N client connects, there will be N client threads, N client sockets, along with 1 serer socket in the main thread
 # In this way, threading will automatically take care of multiple clients
-def connectionThread(connectionSocket, clientID, clientCounter):
+def connectionThread(clientSocketCounter, clientID):
     # send and receive data through the connection socket
     while True:
+        # get client socket(connection socket) by client ID
+        connectionSocket = clientSocketCounter.clientSockets[clientID]
         # server will receive the command and reply with an appropriate response based on the command
         request = connectionSocket.recv(1024).decode()
         # when the connection disconnects for the TCP case, or when client disconnects
@@ -61,75 +65,80 @@ def connectionThread(connectionSocket, clientID, clientCounter):
         else:
             print('Unknown Response, Command', command)
             continue
-    
-    # Whenever an existing client disconnects, print out the client number and the number of clients as below
-    print('Client', clientID, 'disconnected. Number of connected clients =', cc.count)
 
-    cc.count -= 1
     connectionSocket.close()
+    connectionSocket = None
+    clientSocketCounter.liveClientSocketCount -= 1
+
+    # Whenever an existing client disconnects, print out the client number and the number of clients as below
+    print('Client', clientID, 'disconnected. Number of connected clients =', clientSocketCounter.liveClientSocketCount)
 
 # The server must print out the number of client every 1 minute by a thread
-def counterThread(clientCounter):
+def counterThread(clientSocketCounter):
     while True:
-        print('Number of connected clients =', cc.count)
+        print('Number of connected clients =', clientSocketCounter.liveClientSocketCount)
         sleep(60)
 
+def closeAllClientSockets(clientSocketCounter):
+    for clientSocket in clientSocketCounter.clientSockets:
+        if(clientSocket != None):
+            clientSocket.close()
+        
+    print('Number of times server have connected clients so far =', len(clientSocketCounter.clientSockets))
 
 # measure the server starting time
 start = time()
 
-# create TCP socket that following IPv4 on the port #10825
+# create TCP socket that following IPv4 on the serverPort
+# use own designated port number for the server socket
 serverSocket = socket(AF_INET, SOCK_STREAM)
 serverPort = 21758
 serverSocket.bind(('', serverPort))
-connectionSocket = None
+clientSocketCounter = ClinetSocketCounter()
+
+# print the port number of the server socket
+print("The server socket was created on port", serverSocket.getsockname()[1])
+
+# listen to server port
+serverSocket.listen(1)
+print("The server socket is listening to port", serverSocket.getsockname()[1])
 
 # Give each client a unique number when they connect
 clientID = 0
-cc = ClientCounter(0)
-t = Thread(target=counterThread, args=(cc,))
+t = Thread(target=counterThread, args=(clientSocketCounter,))
+t.daemon = True
 t.start()
 
-# print the port number of the socket
-print("The server socket was created on port", serverSocket.getsockname()[1])
-
-# try to listen, accept, send, and receive
+# try to accept, send, and receive
 try:
     # Server has a main thread with a server socket that is waiting for client connections
     while True:
-        
-
-        # listen to port #10825
-        serverSocket.listen(1)
-        print("The server socket is listening to port", serverSocket.getsockname()[1])
-
-        # When a client connects to the server and server 'accept()'s, server has a new socket for that client,
-        (connectionSocket, clientAddress) = serverSocket.accept()
+        # When a client connects to the server and server 'accept()'s, server has a new socket for that client
+        (connectionSocket, clientAddress) = serverSocket.accept()     
         print('Connection requested from', clientAddress)        
+
+        clientSocketCounter.clientSockets.append(connectionSocket) 
+        clientSocketCounter.liveClientSocketCount += 1
+
+        # Whenever a new client connects, print out the client number and the number of clients as below
+        print('Client', clientID, 'connected.    Number of connected clients =', clientSocketCounter.liveClientSocketCount)
+
+        # Server creates a new thread for client connection. The client socket is given to the client thread
+        t2 = Thread(target=connectionThread, args=(clientSocketCounter, clientID))
+        # Then, this client thread in the server will use the client socket to communicate with the client
+        t2.daemon = True
+        t2.start()
 
         # Client ID should not change even if a client disconnect. 
         # Client ID increases by 1 every time connecting with a client
-        cc.count += 1
         clientID += 1
-
-        # Whenever a new client connects, print out the client number and the number of clients as below
-        print('Client', clientID, 'connected. Number of connected clients =', cc.count)
-
-        # and server creates a new thread for that connection. connection socket is given to the client thread
-        t2 = Thread(target=connectionThread, args=(connectionSocket, clientID, cc))
-        # Then, this client thread in the server will use the client socket to communicate with the client
-        t2.start()
-     
 
 # when the user enters ‘Ctrl-C’, the program should not show any error messages
 except KeyboardInterrupt:
-    if(connectionSocket != None):
-        connectionSocket.close()
     print('\nBye bye~')
 # client shutdown without notice?
 except ConnectionResetError:
-    if(connectionSocket != None):
-        connectionSocket.close()
     print('ConnectionResetError: Connection is reset by remote host')
 
+closeAllClientSockets(clientSocketCounter)
 serverSocket.close()
