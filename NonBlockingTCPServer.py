@@ -3,88 +3,66 @@
 
 from socket import *
 from time import *
-from threading import Thread
+from select import *
 import json
 
 
-#
+# manage a client connection socket on a list, and count the number of live client socket
 class ClinetSocketCounter:
     def __init__(self):
-        self.clientSockets = []
+        self.clientserverSockets = []
         self.liveClientSocketCount = 0
 
-# If N client connects, there will be N client threads, N client sockets, along with 1 serer socket in the main thread
+# If N client connects, there will be N client threads, N client serverSockets, along with 1 serer socket in the main thread
 # In this way, threading will automatically take care of multiple clients
-def connectionThread(clientSocketCounter, clientID):
-    # send and receive data through the connection socket
-    while True:
-        # get client socket(connection socket) by client ID
-        connectionSocket = clientSocketCounter.clientSockets[clientID]
-        # server will receive the command and reply with an appropriate response based on the command
-        request = connectionSocket.recv(1024).decode()
-        # when the connection disconnects for the TCP case, or when client disconnects
-        if(request == ''):
-            break
-        # extract command number from client request
-        requestJson = json.loads(request)
-        command = requestJson['command']
+def connection(connectionSocket, serverSockets, socketIDMap):
+    # server will receive the command and reply with an appropriate response based on the command
+    request = connectionSocket.recv(1024).decode()
 
-        # convert text to UPPER-case letters
-        if(command == '1'):
-            print('Command', command)
-            response = requestJson['message'].upper()
-            connectionSocket.send(response.encode())
-        # tell the client what the IP address and port number of the client is
-        elif(command == '2'):
-            print('Command', command)
-            address = {
-                "IP": clientAddress[0],
-                "Port": clientAddress[1]
-            }
-            response = json.dumps(address)
-            connectionSocket.send(response.encode())
-        # tell the client what the current time on the server is
-        elif(command == '3'):
-            print('Command', command)
-            connectionSocket.send(strftime(
-                '%H-%M-%S', localtime(time())).encode())  # TCP
-        # tell the client how long it (server program) has been running for
-        elif(command == '4'):
-            print('Command', command)
-            connectionSocket.send(strftime(
-                '%H-%M-%S', gmtime(time() - start)).encode())  # TCP
-        # test time out
-        elif(command == '6'):
-            print('Command', command)
-            sleep(15)
-        # test buffer overflow
-        elif(command == '7'):
-            print('Command', command)
-            response = requestJson['message']
-            connectionSocket.send(response.encode())
-        else:
-            print('Unknown Response, Command', command)
-            continue
+    # when the connection disconnects for the TCP case, or when client disconnects
+    if(request == ''):
+        # Whenever an existing client disconnects, print out the client number and the number of clients as below
+        connectionSocket.close()
+        serverSockets.remove(connectionSocket)
+        print('Client', socketIDMap[connectionSocket], 'disconnected. Number of connected clients =', len(serverSockets) - 1)
+        del socketIDMap[connectionSocket]
+        return
 
-    connectionSocket.close()
-    connectionSocket = None
-    clientSocketCounter.liveClientSocketCount -= 1
+    # extract command number from client request
+    requestJson = json.loads(request)
+    command = requestJson['command']
 
-    # Whenever an existing client disconnects, print out the client number and the number of clients as below
-    print('Client', clientID, 'disconnected. Number of connected clients =', clientSocketCounter.liveClientSocketCount)
+    # convert text to UPPER-case letters
+    if(command == '1'):
+        print('Command', command)
+        response = requestJson['message'].upper()
+        connectionSocket.send(response.encode())
+    # tell the client what the IP address and port number of the client is
+    elif(command == '2'):
+        print('Command', command)
+        address = {
+            "IP": clientAddress[0],
+            "Port": clientAddress[1]
+        }
+        response = json.dumps(address)
+        connectionSocket.send(response.encode())
+    # tell the client what the current time on the server is
+    elif(command == '3'):
+        print('Command', command)
+        connectionSocket.send(strftime(
+            '%H-%M-%S', localtime(time())).encode())  # TCP
+    # tell the client how long it (server program) has been running for
+    elif(command == '4'):
+        print('Command', command)
+        connectionSocket.send(strftime(
+            '%H-%M-%S', gmtime(time() - start)).encode())  # TCP
+    else:
+        print('Unknown Response, Command', command)
 
-# The server must print out the number of client every 1 minute by a thread
-def counterThread(clientSocketCounter):
-    while True:
-        print('Number of connected clients =', clientSocketCounter.liveClientSocketCount)
-        sleep(60)
-
-def closeAllClientSockets(clientSocketCounter):
-    for clientSocket in clientSocketCounter.clientSockets:
-        if(clientSocket != None):
-            clientSocket.close()
+def closeAllSockets(sockets):
+    for socket in sockets:
+        socket.close()
         
-    print('Number of times server have connected clients so far =', len(clientSocketCounter.clientSockets))
 
 # measure the server starting time
 start = time()
@@ -94,7 +72,9 @@ start = time()
 serverSocket = socket(AF_INET, SOCK_STREAM)
 serverPort = 21758
 serverSocket.bind(('', serverPort))
-clientSocketCounter = ClinetSocketCounter()
+
+# The server also maintains an array of client sockets that are connected
+serverSockets = [serverSocket]
 
 # print the port number of the server socket
 print("The server socket was created on port", serverSocket.getsockname()[1])
@@ -105,33 +85,48 @@ print("The server socket is listening to port", serverSocket.getsockname()[1])
 
 # Give each client a unique number when they connect
 clientID = 0
-t = Thread(target=counterThread, args=(clientSocketCounter,))
-t.daemon = True
-t.start()
+socketIDMap = {}
+
+clientCounterTimer = time()
 
 # try to accept, send, and receive
+# No multi-threading, Server has only one thread with a server socket that is waiting for client connections
 try:
     # Server has a main thread with a server socket that is waiting for client connections
     while True:
-        # When a client connects to the server and server 'accept()'s, server has a new socket for that client
-        (connectionSocket, clientAddress) = serverSocket.accept()     
-        print('Connection requested from', clientAddress)        
+        # Server uses the 'select()' function to wait for all sockets simultaneously
+        # All sockets mean, all clients sockets + the server socket. If N clients, N + 1 sockets
+        readSockets, writeSockets, errorSockets = select(serverSockets, [], [], 1)
+        
+        if (time() - clientCounterTimer > 60):
+            clientCounterTimer = time()
+            print('Number of connected clients =', len(serverSockets) - 1)
 
-        clientSocketCounter.clientSockets.append(connectionSocket) 
-        clientSocketCounter.liveClientSocketCount += 1
+        for readSocket in readSockets:
+            if (readSocket == serverSocket):
+                # When a client connects to the server and server 'accept()'s, server has a new socket for that client
+                (connectionSocket, clientAddress) = serverSocket.accept()
+                print('Connection requested from', clientAddress)
 
-        # Whenever a new client connects, print out the client number and the number of clients as below
-        print('Client', clientID, 'connected.    Number of connected clients =', clientSocketCounter.liveClientSocketCount)
+                # If a new client connection comes in, server will put that client socket into this array
+                serverSockets.append(connectionSocket)
+                socketIDMap[connectionSocket] = clientID            
+                
+                # Whenever a new client connects, print out the client number and the number of clients as below
+                print('Client', clientID, 'connected.    Number of connected clients =', len(serverSockets) - 1)
 
-        # Server creates a new thread for client connection. The client socket is given to the client thread
-        t2 = Thread(target=connectionThread, args=(clientSocketCounter, clientID))
-        # Then, this client thread in the server will use the client socket to communicate with the client
-        t2.daemon = True
-        t2.start()
+                # Client ID should not change even if a client disconnect. 
+                # Client ID increases by 1 every time connecting with a client
+                clientID += 1
 
-        # Client ID should not change even if a client disconnect. 
-        # Client ID increases by 1 every time connecting with a client
-        clientID += 1
+            else:
+                connection(readSocket, serverSockets, socketIDMap)
+        
+        if (len(errorSockets) > 0):
+            print('Error socket list:')
+            for errorSocket in errorSockets:
+                print('Client socket #', socketIDMap[errorSocket])
+            
 
 # when the user enters ‘Ctrl-C’, the program should not show any error messages
 except KeyboardInterrupt:
@@ -140,5 +135,5 @@ except KeyboardInterrupt:
 except ConnectionResetError:
     print('ConnectionResetError: Connection is reset by remote host')
 
-closeAllClientSockets(clientSocketCounter)
+closeAllSockets(serverSockets)
 serverSocket.close()

@@ -155,29 +155,6 @@ while True:
             # the program should print out “Bye bye~” and exit
             print('Bye bye~')
             break
-        # test time out
-        elif(command == '6'):
-            request = json.dumps(jsonData)
-
-            start = time() * 1000
-            clientSocket.send(request.encode())
-            response = clientSocket.recv(2048).decode()
-            end = time() * 1000
-
-            print('Reply from server:', response)
-            print('Response time:', end - start, 'ms')
-        # test buffer overflow
-        elif(command == '7'):
-            jsonData['message'] = 'abcdefghigklmn'
-            request = json.dumps(jsonData)
-
-            start = time() * 1000
-            clientSocket.send(request.encode())
-            response = clientSocket.recv(5).decode()
-            end = time() * 1000
-
-            print('Reply from server:', response)
-            print('Response time:', end - start, 'ms')
 
     # when the user enters ‘Ctrl-C’, the program should not show any error messages
     except KeyboardInterrupt:

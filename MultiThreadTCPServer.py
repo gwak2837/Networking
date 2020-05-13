@@ -1,9 +1,10 @@
 # 20171758 Gwak Taeuk
-# BasicTCPServer.py
+# MultiThreadTCPServer.py
 
 from socket import *
 from time import *
 from threading import Thread
+from threading import Lock
 import json
 
 
@@ -12,6 +13,12 @@ class ClinetSocketCounter:
     def __init__(self):
         self.clientSockets = []
         self.liveClientSocketCount = 0
+        self.lock = Lock()
+
+    def decreaseCounter(self):
+        self.lock.acquire()
+        self.liveClientSocketCount -= 1
+        self.lock.release()
 
 # If N client connects, there will be N client threads, N client sockets, along with 1 serer socket in the main thread
 # In this way, threading will automatically take care of multiple clients
@@ -68,7 +75,7 @@ def connectionThread(clientSocketCounter, clientID):
 
     connectionSocket.close()
     connectionSocket = None
-    clientSocketCounter.liveClientSocketCount -= 1
+    clientSocketCounter.decreaseCounter()
 
     # Whenever an existing client disconnects, print out the client number and the number of clients as below
     print('Client', clientID, 'disconnected. Number of connected clients =', clientSocketCounter.liveClientSocketCount)
