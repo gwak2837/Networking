@@ -69,7 +69,7 @@ def connectTCP(serverName, serverPort, clientPort):
 
 # try to connect to server by TCP
 # for the client socket, you should use null(0) port number
-serverName = 'localhost'
+serverName = 'nsl2.cau.ac.kr'
 serverPort = 21758
 clientPort = 0
 clientSocket = connectTCP(serverName, serverPort, clientPort)
@@ -87,8 +87,6 @@ while True:
         print('3) get server time ')
         print('4) get server running time')
         print('5) exit')
-        print('6) test timed out')
-        print('7) test buffer overflow')
 
         # receive user input
         command = input('Input option: ')
