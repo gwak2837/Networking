@@ -5,64 +5,37 @@ from socket import *
 from time import *
 import json
 from sys import *
+from threading import Thread
+from threading import Lock
+
 
 class InvalidServerResponse(Exception):
     pass
 
+class ClientInfo:
+    def __init__(self, nickname, clientSocket):
+        self.nickname = nickname
+        self.clientSocket = clientSocket
+        self.lock = Lock()
+
+    def setNickname(self, newNickname):
+        self.lock.acquire()
+        self.nickname = newNickname
+        self.lock.release()
+
 # try to connect to server(serverName:serverPort) by TCP
 def connectTCP(serverName, serverPort, clientPort):
-    # create TCP client socket following IPv4 at clientPort
-    clientSocket = socket(AF_INET, SOCK_STREAM)
-
-    # set connetion timeout 10 seconds
-    clientSocket.settimeout(10)
-
+    clientSocket = socket(AF_INET, SOCK_STREAM)  # create TCP client socket following IPv4 at clientPort
+    clientSocket.settimeout(10)  # set connetion timeout 10 seconds
     counter = 0
-    chatroomInfo = None
     while True:
         # if the times of connecting to server by TCP is more than 10, close the socket and exit this process
         if(counter > 10):
             clientSocket.close()
             exit()
         try:
-            # connect to server(serverName:serverPort)
-            clientSocket.connect((serverName, serverPort))
-
-            # send client information to the server
-            clientInfo = {
-                'IP': clientSocket.getsockname()[0],
-                'port': clientPort,
-                'nickname': nickname
-            }
-            request = json.dumps(clientInfo)
-            clientSocket.send(request.encode('utf-8'))
-
-            # receive response from the server
-            response = clientSocket.recv(4).decode('utf-8')
-            if(response == CHATROOM_FULL):
-                print('full. cannot connect')
-                clientSocket.close()
-                exit()
-            elif(response == INVALID_NICKNAME):
-                print('that nickname is used by another user or too long. connot connect')
-                clientSocket.close()
-                exit()
-            elif(response == CHATROOM_ENTRY_SUCCESS):
-                print('Valid nickname')
-            else:
-                print('Invalid response:', response)
-                raise InvalidServerResponse
-
-            # get server IP address from the server
-            response = clientSocket.recv(128).decode('utf-8')
-            chatroomInfo = json.loads(response)
-
-            # print a greeting
-            print('welcome', nickname, 'to cau-netclass chatroom at', chatroomInfo['serverIP'], chatroomInfo['serverPort'], end='.')
-            print('You are', chatroomInfo['userCount'], 'th user.')
-
+            clientSocket.connect((serverName, serverPort))  # connect to server(serverName:serverPort)
             break
-
         # gaierror: Invalid address of server
         except gaierror:
             print('gaierror: Invalid address of server')
@@ -91,34 +64,157 @@ def connectTCP(serverName, serverPort, clientPort):
 
     return clientSocket
 
+def receive(clientInfo):
+    clientSocket = clientInfo.clientSocket
+    while True:
+        try:
+            response = clientSocket.recv(1024).decode('utf-8')
+        except timeout:
+            continue
+
+        # when the connection disconnects for the TCP case, or when server disconnects
+        if(response == ''):
+            print("Response = ''")
+            clientSocket.close()
+            clientInfo.clientSocket = None
+            break
+        
+        response = json.loads(response)
+        cmd = response['cmd']
+
+        if(cmd == USERS_RESPONSE):
+            users = response['users']
+            for user in users:
+                print('Nickname:', user[0], 'IP:', user[1], 'Port:', user[2])
+        elif(cmd == WHISPER_NO_USER):
+            print('No such user exists.')    
+        elif(cmd == WHISPER_SUCCESS):
+            print('Whispering succeeded.')
+        elif(cmd == EXIT_RESPONSE):
+            print(response['nickname'], 'is disconnected. There are', response['userCount'], 'users in the chat room.')
+        elif(cmd == VERSION_RESPONSE):
+            print('Server version :', response['version'])
+            print('Client version :', CLIENT_VERSION)
+        elif(cmd == RENAME_INVALID_NICKNAME):
+            print('That nickname is used by another user or too long. Cannot change to the nickname.')
+        elif(cmd == RENAME_SUCCESS):
+            newNickname = response['nickname']
+            print('Your nickname is changed to', newNickname)
+            clientInfo.setNickname(newNickname)
+        elif(cmd == RTT_RESPONSE):
+            print('Round Trip Time :', time() * 1000 - response['startTime'], 'ms.')
+        elif(cmd == CHAT_RESPONSE):
+            print(response['from'] + '>', response['msg'])
+        else:
+            print('Invalid response:', cmd)   
+
+def send(clientInfo):
+    # list of banned(taboo) words
+    tabooWords = ['i hate professor']
+
+    # Unless explicitly terminated by option 5 or ‘Ctrl-C’, client should not terminate and should repeat the menu
+    clientSocket = clientInfo.clientSocket
+    while True:
+        userInput = input(clientInfo.nickname + '> ')  # receive user input
+        if(userInput == ''):
+            continue
+
+        # check if there are any taboo words in the input value
+        if(not isValidMessage(userInput, tabooWords)):
+            print('Invalid message. Please write a message again.')
+            continue
+        
+        request = {}
+
+        # show the <nickname, IP, port> list of all users
+        if(userInput.startswith('\\users')):
+            request['cmd'] = USERS
+            clientSocket.send(json.dumps(request).encode('utf-8'))
+        # whisper to <nickname>
+        elif(userInput.startswith('\\wh')):
+            userInput = userInput.split()
+            request['cmd'] = WHISPER
+            request['whisperTo'] = userInput[1]
+            request['msg'] = ' '.join(userInput[2:])
+            clientSocket.send(json.dumps(request).encode('utf-8'))
+        # disconnect from server, and quit
+        elif(userInput.startswith('\\exit')):
+            # send a request to the server to terminate the connection and close the client socket
+            clientSocket.send(json.dumps({"cmd": EXIT}).encode('utf-8'))
+            break
+        # show server's software version (and client software version)
+        elif(userInput.startswith('\\version')):
+            request['cmd'] = VERSION
+            clientSocket.send(json.dumps(request).encode('utf-8'))
+        # change client nickname
+        elif(userInput.startswith('\\rename')):
+            # send a request to the server
+            userInput = userInput.split()
+            newNickname = userInput[1]
+            if(not isValidNickname(newNickname)):
+                print('Invalid nickname. Please try again.')
+                continue
+            request['cmd'] = RENAME
+            request['newNickname'] = newNickname
+            clientSocket.send(json.dumps(request).encode('utf-8'))
+        # show RTT(Round Trip Time) from the client to the server and back
+        elif(userInput.startswith('\\rtt')):
+            request['cmd'] = RTT
+            request['startTime'] = time() * 1000
+            clientSocket.send(json.dumps(request).encode('utf-8'))
+        # send a chat to the server
+        else:
+            request['cmd'] = CHAT
+            request['msg'] = userInput
+            clientSocket.send(json.dumps(request).encode('utf-8'))
+
+        sleep(0.5)
+        print()
+
 def isValidNickname(nickname):
     if(len(nickname) > 32):
         print('Your nickname is too long. The name cannot be longer than 32 characters')
         return False 
     return True
 
+def isValidMessage(message, tabooWords):
+    for tabooWord in tabooWords:
+        if(False):                                 # turn off filtering taboo words on client side
+        #if(message.lower().find(tabooWord) > 0):  # turn on filtering taboo words on client side
+            return False
+    return True
+
+
+# Command Encoding
+PRECONNECT = '0'
+PRECONNECT_CHATROOM_FULL = '00'
+PRECONNECT_INVALID_NICKNAME = '01'
+PRECONNECT_SUCCESS = '02'
+USERS = '1'
+USERS_RESPONSE = '10'
+WHISPER = '2'
+WHISPER_NO_USER = '20'
+WHISPER_MYSELF = '21'
+WHISPER_SUCCESS = '22'
+EXIT = '3'
+EXIT_RESPONSE = '30'
+VERSION = '4'
+VERSION_RESPONSE = '40'
+RENAME = '5'
+RENAME_INVALID_NICKNAME = '50'
+RENAME_SUCCESS = '51'
+RTT = '6'
+RTT_RESPONSE = '60'
+CHAT = '7'
+CHAT_RESPONSE = '70'
+MAX_USER_COUNT_IN_CHATROOM = 3
+SERVER_VERSION = '1.0'
+CLIENT_VERSION = '1.0'
 
 # get user nickname from the command line arguments
 nickname = argv[1]
 if(not isValidNickname(nickname)):
     exit()
-
-# Command Encoding
-CHATROOM_FULL = '00'
-INVALID_NICKNAME = '01'
-VALID_NICKNAME = '02'
-CHATROOM_ENTRY_SUCCESS = '1'
-CLIENT_USERS = '3'
-CLIENT_WHISPER = '4'
-CLIENT_WHISPER_NO_USER = '40'
-CLIENT_WHISPER_SUCCESS = '41'
-CLIENT_EXIT = '5'
-CLIENT_VERSION = '6'
-CLIENT_RENAME = '7'
-CLIENT_RTT = '8'
-CLIENT_RTT_REPLY = '80'
-CLIENT_CHAT = '9'
-MAX_USER_COUNT_IN_CHATROOM = 3
 
 # try to connect to server by TCP
 # for the client socket, you should use null(0) port number
@@ -127,112 +223,58 @@ serverPort = 21758
 clientPort = 0
 clientSocket = connectTCP(serverName, serverPort, clientPort)
 
-# list of banned(taboo) words
-tabooWords = ['i hate professor']
+try:
+    # send client nickname to the server
+    request = {}
+    request['cmd'] = PRECONNECT
+    request['nickname'] = nickname
+    clientSocket.send(json.dumps(request).encode('utf-8'))
 
-# Unless explicitly terminated by option 5 or ‘Ctrl-C’, client should not terminate and should repeat the menu
-while True:
-    try:
-        # receive user input
-        userInput = input(nickname + '> ')
-
-        # check if there are any taboo words in the input value
-        for tabooWord in tabooWords:
-            if(userInput.lower().find(tabooWord) > 0):
-                break
-
-        # show the <nickname, IP, port> list of all users
-        if(userInput.startswith('\\users')):
-            request = json.dumps({"cmd": CLIENT_USERS})
-            clientSocket.send(request.encode('utf-8'))
-            response = clientSocket.recv(1024).decode('utf-8')
-            usersInfo = json.loads(response)
-            for user in usersInfo:
-                print('Nickname:', user, 'IP:', usersInfo[user][0], 'Port:', usersInfo[user][1])
-        
-        elif(userInput.startswith('\\wh')):
-            userInput = userInput.split()
-            whisperTo = userInput[1]
-            msg = ' '.join(userInput[2:])
-            requestJson = {
-                "cmd": CLIENT_WHISPER,
-                'whisperTo': whisperTo,
-                'msg': msg
-            }
-            request = json.dumps(requestJson)
-            clientSocket.send(request.encode('utf-8'))
-        
-        # disconnect from server, and quit
-        elif(userInput.startswith('\\exit')):
-            break
-        #
-        elif(userInput.startswith('\\version')):
-            request = json.dumps({"cmd": CLIENT_VERSION})
-            clientSocket.send(request.encode('utf-8'))
-        #
-        elif(userInput.startswith('\\rename')):
-            #
-            userInput = userInput.split()
-            newNickname = userInput[1]
-            if(not isValidNickname(newNickname)):
-                continue
-            requestJson = {
-                "cmd": CLIENT_RENAME,
-                "newNickname": newNickname
-            }
-            request = json.dumps(requestJson)
-            clientSocket.send(request.encode('utf-8'))
-            #
-            response = clientSocket.recv(16).decode('utf-8')
-            if(response == INVALID_NICKNAME):
-                print('that nickname is used by another user or too long. cannot change')
-                continue
-            elif(response == VALID_NICKNAME):
-                print('your nickname is changed to', newNickname)
-                nickname = newNickname
-            else:
-                print('Invalid response:', response)
-                raise InvalidServerResponse
-        #
-        elif(userInput.startswith('\\rtt')):
-            request = json.dumps({"cmd": CLIENT_RTT})
-            start = time() * 1000
-            clientSocket.send(request.encode('utf-8'))
-            response = clientSocket.recv(2).decode('utf-8')
-            end = time() * 1000
-            if(response == CLIENT_RTT_REPLY):
-                print('Round Trip Time:', end - start, 'ms')
-            else:
-                print('Invalid response:', response)
-                raise InvalidServerResponse
-        #
-        else:
-            request = json.dumps({"cmd": CLIENT_CHAT})
-            clientSocket.send(request.encode('utf-8'))
-
-    # when the user enters ‘Ctrl-C’, the program should not show any error messages
-    except KeyboardInterrupt:      
-        break
-    # when the server socket closed?
-    except (ConnectionResetError, BrokenPipeError):
-        print('ConnectionResetError: Connection is reset by remote host')
-        # try to reconnect to server by TCP
-        # 
-        # 
+    # receive response from the server
+    response = json.loads(clientSocket.recv(1024).decode('utf-8'))
+    cmd = response['cmd']
+    if(cmd == PRECONNECT_CHATROOM_FULL):
+        print('Chatroom is full. Cannot enter the chatroom.')
         clientSocket.close()
-        clientSocket = connectTCP(serverName, serverPort, clientPort)
-    # when connection timed out
-    except timeout:
-        print('timeout: Connection timed out')
-    # other exception
-    except Exception as e:
-        print(e)
+        exit()
+    elif(cmd == PRECONNECT_INVALID_NICKNAME):
+        print('That nickname is used by another user or too long. Cannot connect to the server.')
+        clientSocket.close()
+        exit()
+    elif(cmd == PRECONNECT_SUCCESS):
+        print('Welcome', nickname, 'to cau-netclass chatroom at', response['serverIP'], response['serverPort'])
+        print('You are', response['userCount'], 'th user.')
+    else:
+        print('Invalid response:', response)
+        raise InvalidServerResponse
+    
+    clientInfo = ClientInfo(nickname, clientSocket)
 
-    print()
+    # thread which is receiving all messages from the server
+    receiveThread = Thread(target=receive, args=(clientInfo,))
+    receiveThread.daemon = True
+    receiveThread.start()
 
-# Send a request to the server to terminate the connection
+    # thread which is sending a message to the server
+    sendThread = Thread(target=send, args=(clientInfo,))
+    sendThread.daemon= True
+    sendThread.start()
+
+    while clientInfo.clientSocket != None:
+        sleep(0.5)
+
+except ConnectionResetError:
+    print('ConnectionResetError: Connection is reset by remote host')
+except BrokenPipeError:
+    print('BrokenPipeError: Connection disconnected while processing recv() or send()')
+# when the user enters ‘Ctrl-C’, the program should not show any error messages
+except KeyboardInterrupt:
+    # send a request to the server to terminate the connection and close the client socket
+    clientSocket.send(json.dumps({"cmd": EXIT}).encode('utf-8'))
+    clientSocket.close()
+# other exception
+except Exception as e:
+    print(e) 
+
 # the program should print out “adios~” and exit
-request = json.dumps({"cmd": CLIENT_EXIT})
-clientSocket.send(request.encode('utf-8'))
-clientSocket.close()
 print('\nadios~')
