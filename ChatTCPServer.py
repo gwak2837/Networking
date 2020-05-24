@@ -237,9 +237,10 @@ CLIENT_VERSION = "1.0"
 # create TCP socket that following IPv4 on the serverPort
 # use own designated port number for the server socket
 serverSocket = socket(AF_INET, SOCK_STREAM)
+serverName = "nsl2.cau.ac.kr"
 serverPort = 21758
 serverSocket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
-serverSocket.bind(("", serverPort))
+serverSocket.bind((serverName, serverPort))
 
 # listen to server port
 serverSocket.listen(1)
