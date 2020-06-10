@@ -81,7 +81,7 @@ def connectionThread(clientSockets, connectionSocket, clientAddress):
             requestBytes = connectionSocket.recv(2048)
 
             # when the connection disconnects for the TCP case, or when client disconnects
-            if requestBytes == "":
+            if requestBytes == b"":
                 break
 
             # extract command number from client request
@@ -90,7 +90,7 @@ def connectionThread(clientSockets, connectionSocket, clientAddress):
                 try:
                     request = pickle.loads(requestBytes)
                     break
-                except pickle.UnpicklingError:
+                except (pickle.UnpicklingError, EOFError):
                     requestBuffer.append(connectionSocket.recv(2048))
                     requestBytes = b"".join(requestBuffer)
                     continue
@@ -285,7 +285,7 @@ CLIENT_VERSION = "1.0"
 # create TCP socket that following IPv4 on the serverPort
 # use own designated port number for the server socket
 serverSocket = socket(AF_INET, SOCK_STREAM)
-serverName = "localhost"
+serverName = "nsl2.cau.ac.kr"
 serverPort = 21758
 serverSocket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
 serverSocket.bind((serverName, serverPort))

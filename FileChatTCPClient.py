@@ -93,7 +93,7 @@ def receive(clientInfo):
             try:
                 response = pickle.loads(responseBytes)
                 break
-            except pickle.UnpicklingError:
+            except (pickle.UnpicklingError, EOFError):
                 responseBuffer.append(clientSocket.recv(2048))
                 responseBytes = b"".join(responseBuffer)
                 continue
@@ -311,7 +311,7 @@ if not isValidNickname(nickname):
 
 # try to connect to server by TCP
 # for the client socket, you should use null(0) port number
-serverName = "localhost"
+serverName = "nsl2.cau.ac.kr"
 serverPort = 21758
 clientPort = 0
 clientSocket = connectTCP(serverName, serverPort, clientPort)
