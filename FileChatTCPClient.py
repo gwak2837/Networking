@@ -1,5 +1,5 @@
 # 20171758 Gwak Taeuk
-# ChatTCPClient.py
+# FileChatTCPClient.py
 
 from socket import *
 from time import *
@@ -72,22 +72,32 @@ def connectTCP(serverName, serverPort, clientPort):
 def receive(clientInfo):
     # client state variable
     clientSocket = clientInfo.clientSocket
-    filesDictionary = {}  # { fileHash: {fileName: "", filePieceCount: 0, filePieces: []}, ... }
 
     while True:
         try:
-            response = clientSocket.recv(1024)
+            responseBytes = clientSocket.recv(2048)
         except timeout:
             continue
 
         # when the connection disconnects for the TCP case, or when server disconnects
-        if response == b"":
+        if responseBytes == b"":
             print('Response = ""')
             clientSocket.close()
             clientInfo.clientSocket = None
             break
 
-        response = pickle.loads(response)
+        # when the size of received data is more than `recv` buffer size(=2048),
+        # continue to receive until the socket receives all the data
+        responseBuffer = [responseBytes]
+        while True:
+            try:
+                response = pickle.loads(responseBytes)
+                break
+            except pickle.UnpicklingError:
+                responseBuffer.append(clientSocket.recv(2048))
+                responseBytes = b"".join(responseBuffer)
+                continue
+
         cmd = response["cmd"]
 
         if cmd == USERS_RESPONSE:
@@ -120,53 +130,24 @@ def receive(clientInfo):
         elif cmd == FILE_TRANSFER_WHISPER_MYSELF:
             print("Cannot send a file to myself.")
         elif cmd == FILE_TRANSFER_RESPONSE:
+            # when the sender sends a file, a message will be printed out as a chat message to all connected clients only to the clients who are receiving the file
+            # change the receiving filename to below, because two or more clients might be on the same host, same directory
             if "whisperTo" in response:
                 print(response["sender"], "is sending file", response["fileName"], "to", response["whisperTo"])
+                filename = "wsend_" + response["sender"] + "_" + response["whisperTo"] + "_" + response["fileName"]
             else:
                 print(response["sender"], "is sending file", response["fileName"])
+                filename = "fsend_" + response["sender"] + "_" + clientInfo.nickname + "_" + response["fileName"]
 
-            # identify files by file hash
-            # if the file hash is new, create a new dictionary entry
-            fileHash = response["fileHash"]
-            if fileHash not in filesDictionary:
-                filesDictionary[fileHash] = {
-                    "fileName": response["fileName"],
-                    "sender": response["sender"],
-                    "filePieceCount": 0,
-                    "filePieces": [0 for i in range(response["totalFilePieces"])],
-                }
-
-            # save the file piece
-            # when the entire file piece is downloaded without any error, save it as a file
-            fileInfo = filesDictionary[fileHash]
-            if (
-                fileInfo["filePieces"][response["filePieceNo"]] == 0
-                and fileInfo["fileName"] == response["fileName"]
-                and len(fileInfo["filePieces"]) == response["totalFilePieces"]
-            ):
-                fileInfo["filePieces"][response["filePieceNo"]] = response["filePiece"]
-                fileInfo["filePieceCount"] += 1
-                if fileInfo["filePieceCount"] == len(fileInfo["filePieces"]):
-                    binaryFile = b"".join(fileInfo["filePieces"])
-                    if sha256(binaryFile).digest() == fileHash:
-                        if "whisperTo" in response:
-                            filename = (
-                                "wsend_" + fileInfo["sender"] + "_" + response["whisperTo"] + "_" + fileInfo["fileName"]
-                            )
-                        else:
-                            filename = (
-                                "fsend_" + fileInfo["sender"] + "_" + clientInfo.nickname + "_" + fileInfo["fileName"]
-                            )
-                        with open(filename, "wb") as f:
-                            f.write(binaryFile)
-                        print("File", filename, "received from", fileInfo["sender"])
-                        del fileInfo
-                    else:
-                        print("Invalid file hash. The file data might be invalid")
-            # the file piece is duplicate (not expected case)
+            # check whether receiving file is valid (not currupted)
+            # if the same filename exists in the receiver's current directory, overwrite the file into new file
+            # when each client receives a file, a message will be printed out as a chat message only to the clients who are receiving the file
+            if sha256(response["fileBinaryData"]).digest() == response["fileHash"]:
+                with open(filename, "wb") as f:
+                    f.write(response["fileBinaryData"])
+                print("File", filename, "received from", response["sender"])
             else:
-                print("Unexpected case.")
-
+                print("Invalid file hash. The file data might be invalid")
         else:
             print("Invalid response:", cmd)
 
@@ -225,7 +206,7 @@ def send(clientInfo):
                 request["cmd"] = RTT
                 request["startTime"] = time() * 1000
                 clientSocket.send(pickle.dumps(request, protocol=4))
-            #
+            # send a file <filename> to all connected clients
             elif userInput.startswith("\\fsend"):
                 userInput = userInput.split()
                 try:
@@ -235,21 +216,16 @@ def send(clientInfo):
                     print(e)
                     continue
 
-                totalFilePieces = math.ceil(len(binaryData) / 1024)
                 request["cmd"] = FILE_TRANSFER_ALL
                 request["sender"] = clientInfo.nickname
                 request["fileHash"] = sha256(binaryData).digest()
                 request["fileName"] = userInput[1]
-                request["totalFilePieces"] = totalFilePieces
-
-                for filePieceNo in range(totalFilePieces):
-                    print(filePieceNo)
-                    request["filePieceNo"] = filePieceNo
-                    request["filePiece"] = binaryData[filePieceNo * 1024 : (filePieceNo + 1) * 1024]
-                    clientSocket.send(pickle.dumps(request, protocol=4))
-            #
+                request["fileBinaryData"] = binaryData
+                clientSocket.send(pickle.dumps(request, protocol=4))
+            # send a file <filename> to client <nickname> only
             elif userInput.startswith("\\wsend"):
                 # open file and get binary data of file
+                # if the file not exist in the current directory of the sender, print out an error message to the sender
                 userInput = userInput.split()
                 try:
                     with open(userInput[1], "rb") as f:
@@ -258,15 +234,13 @@ def send(clientInfo):
                     print(e)
                     continue
 
-                totalFilePieces = 1
+                # send a whole file and its information with one TCP payload
                 request["cmd"] = FILE_TRANSFER_WHISPER
                 request["sender"] = clientInfo.nickname
                 request["fileHash"] = sha256(binaryData).digest()
                 request["fileName"] = userInput[1]
                 request["whisperTo"] = userInput[2]
-                request["totalFilePieces"] = totalFilePieces
-                request["filePieceNo"] = 0
-                request["filePiece"] = binaryData
+                request["fileBinaryData"] = binaryData
                 clientSocket.send(pickle.dumps(request, protocol=4))
             # undefined command
             elif userInput.startswith("\\"):

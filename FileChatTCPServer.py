@@ -1,5 +1,5 @@
 # 20171758 Gwak Taeuk
-# ChatTCPServer.py
+# FileChatTCPServer.py
 
 from socket import *
 from time import *
@@ -176,21 +176,17 @@ def connectionThread(clientSockets, connectionSocket, clientAddress):
                     # except the client who send the chat
                     if clientInfo[2] != connectionSocket:
                         clientInfo[2].send(byteStream)
-
+            # send a file <filename> to all connected clients
             elif cmd == FILE_TRANSFER_ALL:
-
-                print(request["filePieceNo"])
-
                 response["cmd"] = FILE_TRANSFER_RESPONSE
                 response["sender"] = request["sender"]
-                response["fileName"] = request["fileName"]
                 response["fileHash"] = request["fileHash"]
-                response["totalFilePieces"] = request["totalFilePieces"]
-                response["filePieceNo"] = request["filePieceNo"]
-                response["filePiece"] = request["filePiece"]
+                response["fileName"] = request["fileName"]
+                response["fileBinaryData"] = request["fileBinaryData"]
                 byteStream = pickle.dumps(response, protocol=4)
+
+                # all other connected clients should receive this file, excluding the sender
                 for clientInfo in clientSockets.clientNicknameSocket.values():
-                    # except the client who send the chat
                     if clientInfo[2] != connectionSocket:
                         clientInfo[2].send(byteStream)
 
@@ -208,11 +204,10 @@ def connectionThread(clientSockets, connectionSocket, clientAddress):
                 else:
                     response["cmd"] = FILE_TRANSFER_RESPONSE
                     response["sender"] = request["sender"]
-                    response["fileName"] = request["fileName"]
                     response["fileHash"] = request["fileHash"]
-                    response["totalFilePieces"] = request["totalFilePieces"]
-                    response["filePieceNo"] = request["filePieceNo"]
-                    response["filePiece"] = request["filePiece"]
+                    response["fileName"] = request["fileName"]
+                    response["whisperTo"] = whisperTo
+                    response["fileBinaryData"] = request["fileBinaryData"]
                     clientSockets.clientNicknameSocket[whisperTo][2].send(pickle.dumps(response, protocol=4))
             # Invalid client request
             else:
