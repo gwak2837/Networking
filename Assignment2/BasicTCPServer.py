@@ -9,23 +9,23 @@ import json
 start = time()
 
 # create TCP socket that following IPv4 on the port #10825
-serverSocket = socket(AF_INET, SOCK_STREAM)
-serverPort = 21758
-serverSocket.bind(('', serverPort))
+server_socket = socket(AF_INET, SOCK_STREAM)
+server_port = 21758
+server_socket.bind(('', server_port))
 
 # print the port number of the socket
-print("The server socket was created on port", serverSocket.getsockname()[1])
+print("The server socket was created on port", server_socket.getsockname()[1])
 
 # try to listen, accept, send, and receive
 try:
     while True:
         # listen to port #10825
-        serverSocket.listen(1)
+        server_socket.listen(1)
         print("The server socket is listening to port",
-              serverSocket.getsockname()[1])
+              server_socket.getsockname()[1])
 
         # accpet the connection request from client
-        (connectionSocket, clientAddress) = serverSocket.accept()
+        (connectionSocket, clientAddress) = server_socket.accept()
         print('Connection requested from', clientAddress)
 
         # send and receive data through the connection socket
@@ -85,4 +85,4 @@ except ConnectionResetError:
     print('ConnectionResetError: Connection is reset by remote host')
 
 connectionSocket.close()
-serverSocket.close()
+server_socket.close()
