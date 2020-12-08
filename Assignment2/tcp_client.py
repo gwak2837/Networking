@@ -66,21 +66,21 @@ print(f"Host: {client_socket.getsockname()[0]}, Port: {client_socket.getsockname
 while True:
     try:
         # 각 요청 번호의 설명을 출력한다.
-        print("<Menu>")
-        print("1) convert text to UPPER-case")
-        print("2) get my IP address and port number")
-        print("3) get server time ")
-        print("4) get server running time")
-        print("5) exit")
+        print("<요청>")
+        print("1) 문자열을 대문자로 변경해서 출력")
+        print("2) 클라이언트 소켓의 IP 주소와 포트 번호 출력")
+        print("3) 서버 현재 시간 출력")
+        print("4) 서버 실행 시간 출력")
+        print("5) 클라이언트 종료")
 
         # 사용자로부터 요청 번호를 입력받는다.
-        command = input("Input option: ")
+        command = input("요청 번호를 입력하세요: ")
         request = {"command": command}
 
         # 문자열을 모두 대문자로 바꾸는 요청
         if command == "1":
             # 사용자로부터 문자열을 입력받는다.
-            message = input("Input lowercase sentence: ")
+            message = input("대문자로 변환할 문자열 입력: ")
             request["message"] = message
             binary_stream = pickle.dumps(request)
 
@@ -91,10 +91,10 @@ while True:
             end = time.time() * 1000
 
             # 서버로부터 받은 응답을 출력한다.
-            print("Reply from server:", response)
+            print(f"서버로부터 받은 응답: {response}")
 
             # 클라이언트에서 측정한 RTT를 출력한다.
-            print("Response time:", end - start, "ms")
+            print(f"RTT: {end - start} ms")
 
         # ask the server what is the IP address and port number of the client (myself)
         elif command == "2":
@@ -147,7 +147,7 @@ while True:
         print("ConnectionResetError: Connection is reset by remote host")
         # try to reconnect to server by TCP
         client_socket.close()
-        client_socket = connect_to_tcp_socket(host, port, client_port)
+        client_socket = connect_to_tcp_socket(host, port)
     # when connection timed out
     except socket.timeout:
         print("timeout: Connection timed out")
